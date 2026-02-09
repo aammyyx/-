@@ -1,0 +1,768 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>庫存監測平台｜三表匯入（主管版）</title>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    :root{--bg:#f5f7fa;--card:#fff;--ink:#111827;--muted:#6b7280;--line:#e5e7eb;--brand:#0f3d62;--danger:#d9534f;--warn:#f0ad4e;--ok:#5cb85c;}
+    *{box-sizing:border-box;}
+    body{margin:0;font-family:Arial,Helvetica,sans-serif;background:var(--bg);color:var(--ink);}    
+    header{background:var(--brand);color:#fff;padding:16px 24px;}
+    header h1{margin:0;font-size:20px;}
+    header p{margin:6px 0 0;font-size:12px;opacity:.9}
+
+    .bar{background:var(--card);border-bottom:1px solid var(--line);padding:12px 24px;display:flex;flex-wrap:wrap;gap:12px;align-items:center;}
+    .bar .block{display:flex;gap:8px;align-items:center;}
+    .bar label{font-size:12px;color:var(--muted);}    
+    input[type=file]{font-size:12px;}
+    select,input[type=text]{padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:#fff;font-size:12px;min-width:140px;}
+    button{padding:7px 10px;border:1px solid var(--line);border-radius:10px;background:#fff;font-size:12px;cursor:pointer;}
+    button.primary{background:var(--brand);color:#fff;border-color:var(--brand);}    
+
+    .container{padding:20px 24px;}
+    .grid{display:grid;gap:14px;}
+    .kpis{grid-template-columns:repeat(4,minmax(180px,1fr));}
+    .card{background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:0 1px 6px rgba(0,0,0,.05);}
+    .kpi{padding:14px 14px 12px;}
+    .kpi h3{margin:0;font-size:12px;color:var(--muted);font-weight:600;}
+    .kpi .v{margin-top:10px;font-size:22px;font-weight:800;letter-spacing:.2px;}
+    .kpi .s{margin-top:6px;font-size:12px;color:var(--muted);}
+
+    .charts{grid-template-columns:2fr 1fr;align-items:stretch;margin-top:14px;}
+    .card h2{margin:0;padding:14px 14px 0;font-size:14px;}
+    .card .pad{padding:14px;}
+    .split{grid-template-columns:1.2fr .8fr;margin-top:14px;}
+
+    table{width:100%;border-collapse:collapse;font-size:12px;}
+    th,td{padding:8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top;}
+    th{position:sticky;top:0;background:#f9fafb;font-size:12px;color:#374151;z-index:1;}
+    tr:hover{background:#fafafa;}
+    .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;}
+
+    .pill{display:inline-flex;align-items:center;gap:6px;padding:2px 8px;border-radius:999px;border:1px solid var(--line);font-size:11px;color:#374151;background:#fff;}
+    .dot{width:8px;height:8px;border-radius:50%;}
+    .danger{color:var(--danger);font-weight:800;}
+    .warn{color:var(--warn);font-weight:800;}
+    .ok{color:var(--ok);font-weight:800;}
+
+    .flex{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
+    .right{margin-left:auto;}
+    .muted{color:var(--muted);}
+    .small{font-size:12px;}
+
+    .drawer{position:fixed;right:18px;bottom:18px;width:min(520px,calc(100vw - 36px));max-height:70vh;overflow:auto;background:#fff;border:1px solid var(--line);border-radius:16px;box-shadow:0 12px 40px rgba(0,0,0,.18);display:none;}
+    .drawer header{background:#fff;color:var(--ink);padding:12px 14px;border-bottom:1px solid var(--line);}    
+    .drawer header h3{margin:0;font-size:14px;}
+    .drawer .body{padding:14px;}
+    .row{display:grid;grid-template-columns:140px 1fr;gap:10px;margin-bottom:10px;align-items:center;}
+    .row input,.row select{width:100%;}
+
+    @media (max-width: 1100px){
+      .kpis{grid-template-columns:repeat(2,minmax(180px,1fr));}
+      .charts{grid-template-columns:1fr;}
+      .split{grid-template-columns:1fr;}
+    }
+  </style>
+</head>
+<body>
+<header>
+  <h1>庫存監測平台｜三表匯入（主管決策版）</h1>
+  <p>匯入 5001（工單用料 / WIP）＋ 5002（在庫/在途）＋ 5003（委外庫存）後，自動產出 KPI、結構圖、庫齡分佈與高風險清單（可 drill-down、可 Owner/進度/到期管理）。</p>
+</header>
+
+<div class="bar">
+  <div class="block"><label>5001 工單用料</label><input type="file" id="f5001" accept=".xlsx,.xls" /></div>
+  <div class="block"><label>5002 在庫/在途</label><input type="file" id="f5002" accept=".xlsx,.xls" /></div>
+  <div class="block"><label>5003 委外庫存</label><input type="file" id="f5003" accept=".xlsx,.xls" /></div>
+  <div class="block"><label>全域搜尋</label><input type="text" id="q" placeholder="料號 / Lot / 工單號 / Planner / Business" /></div>
+
+  <div class="block"><label>BU</label><select id="bu"></select></div>
+  <div class="block"><label>Org</label><select id="org"></select></div>
+  <div class="block"><label>Business</label><select id="biz"></select></div>
+  <div class="block"><label>Planner</label><select id="planner"></select></div>
+
+  <div class="right flex">
+    <button id="btnSeed">載入範例資料</button>
+    <button id="btnExport">匯出行動追蹤</button>
+    <button id="btnImport">匯入行動追蹤</button>
+    <input type="file" id="actFile" accept="application/json" style="display:none" />
+    <button id="btnClear">清空追蹤</button>
+    <button class="primary" id="btnRefresh">重算/刷新</button>
+  </div>
+</div>
+
+<div class="container">
+  <div class="grid kpis">
+    <div class="card kpi">
+      <h3>帳上庫存總額（5002｜總成本）</h3>
+      <div class="v" id="kInv">-</div>
+      <div class="s" id="kInvS">含在途/移轉庫存（依 5002 資料類型）</div>
+    </div>
+    <div class="card kpi">
+      <h3>委外庫存總額（5003｜NTDMaterial Amount）</h3>
+      <div class="v" id="kCons">-</div>
+      <div class="s" id="kConsS">認列我司庫存，但存放於他司庫房</div>
+    </div>
+    <div class="card kpi">
+      <h3>在製品暴露（5001｜在製品總成本）</h3>
+      <div class="v" id="kWip">-</div>
+      <div class="s" id="kWipS">已投料/已發生成本，但尚未成品化的資金占用</div>
+    </div>
+    <div class="card kpi">
+      <h3>高風險金額（庫齡/未結案/WIP Net）</h3>
+      <div class="v" id="kRisk">-</div>
+      <div class="s" id="kRiskS">庫齡 ≥ 90 天、工單延遲、或 WIP Net>0</div>
+    </div>
+  </div>
+
+  <div class="grid charts">
+    <div class="card">
+      <h2>庫存結構（在庫 vs 委外 vs WIP）</h2>
+      <div class="pad"><canvas id="cStructure"></canvas></div>
+    </div>
+    <div class="card">
+      <h2>庫齡分佈（5002｜以金額）</h2>
+      <div class="pad"><canvas id="cAge"></canvas></div>
+    </div>
+  </div>
+
+  <div class="grid split">
+    <div class="card">
+      <div class="pad flex">
+        <div>
+          <div class="pill"><span class="dot" style="background:var(--danger)"></span><span class="danger">紅</span>：庫齡≥180 或 提列比率≥50% 或 工單延遲≥14天</div>
+          <div class="pill"><span class="dot" style="background:var(--warn)"></span><span class="warn">黃</span>：庫齡90–179 或 提列比率>0 或 WIP Net>0</div>
+          <div class="pill"><span class="dot" style="background:var(--ok)"></span><span class="ok">綠</span>：其餘</div>
+        </div>
+        <div class="right small muted" id="meta">尚未匯入檔案</div>
+      </div>
+      <div class="pad" style="padding-top:0;">
+        <h2 style="padding:0;margin:0 0 10px;">高風險清單（跨三表｜可 drill-down & 問責）</h2>
+        <div style="max-height:46vh;overflow:auto;border:1px solid var(--line);border-radius:12px;">
+          <table id="tRisk">
+            <thead>
+              <tr>
+                <th style="width:64px;">等級</th>
+                <th style="width:70px;">來源</th>
+                <th>BU</th>
+                <th>Org</th>
+                <th>Business</th>
+                <th>料號</th>
+                <th>Lot/工單</th>
+                <th style="width:120px;">金額(NTD)</th>
+                <th style="width:110px;">風險因子</th>
+                <th style="width:110px;">Owner</th>
+                <th style="width:110px;">進度</th>
+                <th style="width:110px;">到期日</th>
+                <th style="width:78px;">操作</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="pad">
+        <h2 style="margin-bottom:10px;">Overdue Focus（逾期未結案）</h2>
+        <div class="muted small" style="margin-bottom:10px;">用於週會問責：只列 Open 且到期日 < 今天</div>
+        <div style="max-height:46vh;overflow:auto;border:1px solid var(--line);border-radius:12px;">
+          <table id="tOver">
+            <thead>
+              <tr>
+                <th>來源</th><th>BU</th><th>料號</th><th>金額</th><th>Owner</th><th>到期日</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 行動追蹤 Drawer -->
+<div class="drawer" id="drawer">
+  <header class="flex">
+    <h3 id="dTitle">行動追蹤</h3>
+    <div class="right flex">
+      <button id="dClose">關閉</button>
+    </div>
+  </header>
+  <div class="body">
+    <div class="row"><div class="muted">Owner</div><input id="dOwner" placeholder="例如：採購部 / 業務部 / 生產部" /></div>
+    <div class="row"><div class="muted">進度</div>
+      <select id="dProgress">
+        <option value="Open">Open</option>
+        <option value="In Progress">In Progress</option>
+        <option value="Blocked">Blocked</option>
+        <option value="Closed">Closed</option>
+      </select>
+    </div>
+    <div class="row"><div class="muted">到期日</div><input id="dDue" type="date" /></div>
+    <div class="row"><div class="muted">備註</div><input id="dNote" placeholder="關鍵行動/阻礙/需要支援" /></div>
+    <div class="flex">
+      <button class="primary" id="dSave">儲存</button>
+      <button id="dClear">清除此筆</button>
+      <div class="right muted small" id="dKey"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// =======================
+// 0) Utilities
+// =======================
+const $ = (id)=>document.getElementById(id);
+const fmtMoney = (n)=>{
+  if(!isFinite(n)) return '-';
+  const abs=Math.abs(n);
+  if(abs>=1e9) return 'NT$ '+(n/1e9).toFixed(2)+'B';
+  if(abs>=1e6) return 'NT$ '+(n/1e6).toFixed(2)+'M';
+  return 'NT$ '+Math.round(n).toLocaleString('en-US');
+};
+const fmtNum = (n)=> isFinite(n)? Math.round(n).toLocaleString('en-US') : '-';
+const toDate = (v)=>{
+  if(!v) return null;
+  if(v instanceof Date) return v;
+  const s=String(v).trim();
+  // try yyyy/mm/dd or yyyy-mm-dd
+  const m=s.match(/(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})/);
+  if(m){
+    const d=new Date(+m[1], +m[2]-1, +m[3]);
+    if(!isNaN(d)) return d;
+  }
+  const d=new Date(s);
+  return isNaN(d)? null : d;
+};
+const today = ()=>{ const d=new Date(); d.setHours(0,0,0,0); return d; };
+
+// =======================
+// 1) Data stores
+// =======================
+let r5001=[], r5002=[], r5003=[]; // raw
+let unified=[];                    // risk list objects
+let structureChart=null, ageChart=null;
+
+// action tracker (local)
+const ACT_KEY='inv_actions_v1';
+let actions = JSON.parse(localStorage.getItem(ACT_KEY)||'{}');
+
+// =======================
+// 2) Read Excel
+// =======================
+function readExcel(file, cb){
+  const reader=new FileReader();
+  reader.onload=e=>{
+    const wb=XLSX.read(e.target.result,{type:'binary'});
+    const sh=wb.Sheets[wb.SheetNames[0]];
+    const rows=XLSX.utils.sheet_to_json(sh,{defval:''});
+    cb(rows);
+  };
+  reader.readAsBinaryString(file);
+}
+
+$('f5001').addEventListener('change', e=>{ if(e.target.files[0]) readExcel(e.target.files[0], d=>{r5001=d; rebuild();}); });
+$('f5002').addEventListener('change', e=>{ if(e.target.files[0]) readExcel(e.target.files[0], d=>{r5002=d; rebuild();}); });
+$('f5003').addEventListener('change', e=>{ if(e.target.files[0]) readExcel(e.target.files[0], d=>{r5003=d; rebuild();}); });
+
+// =======================
+// 3) Seed sample (from user provided examples)
+// =======================
+$('btnSeed').addEventListener('click', ()=>{
+  r5001=[{
+    'BU':'Polarizer','Org':'BMB','料號':'51.UA310.413','大分類':'半成品','資料類型':'WIP','品名':'T/SS/BOE/31.5/479.7X616.6/Z_TAC(40)_HC/TS/CUT',
+    'Size':'W31.5','Size Type':'大尺寸','Item Type':'B-1','Item Class':'SS','Item Class 說明':'偏光.中小尺寸偏光片',
+    '工單號':'PBB5318111','工單種類':'STD','工單類別':'BLADE-N','狀態':'Released','版本號':'',
+    '計劃入庫量':1659,'實際入庫量':2,'未入庫數量':1657,
+    '預計開始日期':'2025/03/18 00:00:00','預計完成日期':'2025/03/26 00:00:00',
+    'Material Amount\nIn':113408,'DLOH Amount\nIn':17802,'Material Amount\nOut':137.0,'DLOH Amount\nOut':22.0,
+    'Material Amount\nNet':113271.0,'DLOH Amount\nNet':17780.0,
+    '在製品總成本':131051.0,'Planner':'(NONE)','幣別':'NTD','整合訊息':'正常作业','異常缺陷描述':'壓點5',
+    '投料批號':'BU511308PE','Business':'CHPF','大工單號':'AS5551B5318111','來料數量':670.0,'委外廠商':'','時間':'2025/3/24'
+  }];
+
+  r5002=[{
+    'BU':'Polarizer','Org':'BLB','料號':'47.05B54.000','大分類':'包裝材','資料類型':'OTW','品名':'IRON PALLET/1020*1020*140MM',
+    'Item Type':'E-1','Item Class':'PF','Item Class 說明':'偏光.偏光片產品共用',
+    'Fin_等級倉':'A0.良品倉','庫房':'PC10','庫房 說明':'良品倉','Lot':'',
+    'Business':'ALL','庫齡':'',"Q'ty":20,'Material Cost':646.119,'DLOH Cost':'',
+    'Material Amount':12922.4,'DLOH Amount':0.0,'總成本':12922.4,'提列比率':'','LCM AMT':'',
+    'Planner':'PBMS','來源組織':'BML','來源料號':'47.05B54.000','幣別':'NTD','時間':'2025/12/1'
+  }];
+
+  r5003=[{
+    'Bu':'Polarizer','Org':'BMB','料號':'6J.E148T.916','大分類':'他廠半成品(不換料號)','資料類型':'RECEIVING',
+    '品名':'B/SS/48T/132.82X924.32X791.5/N(40)_N(40)+APF/TT/CUT','Item Type':'B-3','Item Class':'SS','Item Class Desc':'偏光.中小尺寸偏光片',
+    'Business':'VDPF','UOM':'pcs',"Q'ty":71,'Material Cost':524.388982,'Material Amount':37231.61772,
+    'Currency':'NTD','NTD Material Cost':524.388982,'NTDMaterial Amount':37231.61772,
+    'Planner':'','Consigned料號':'N','時間':'2025/3/28'
+  }];
+
+  rebuild();
+});
+
+// =======================
+// 4) Normalization helpers
+// =======================
+function pick(row, keys){
+  for(const k of keys){
+    if(Object.prototype.hasOwnProperty.call(row,k)) return row[k];
+  }
+  return '';
+}
+
+function num(v){
+  if(v===null||v===undefined) return 0;
+  if(typeof v==='number') return isFinite(v)? v:0;
+  const s=String(v).replace(/,/g,'').trim();
+  const n=parseFloat(s);
+  return isFinite(n)? n:0;
+}
+
+function actionKey(obj){
+  // Stable key across refresh
+  // Include source + item + lot/wo + business to reduce collision
+  return [obj.source,obj.bu,obj.org,obj.business,obj.item,obj.ref].map(x=>String(x||'').trim()).join('|');
+}
+
+function getAction(k){
+  return actions[k] || {owner:'',progress:'Open',due:'',note:''};
+}
+
+function setAction(k, val){
+  actions[k]=val;
+  localStorage.setItem(ACT_KEY, JSON.stringify(actions));
+}
+
+function clearAction(k){
+  delete actions[k];
+  localStorage.setItem(ACT_KEY, JSON.stringify(actions));
+}
+
+// =======================
+// 5) Risk logic
+// =======================
+function riskLevel(o){
+  // Red: age>=180 OR provision>=50% OR delay>=14 days
+  // Yellow: age 90-179 OR provision>0 OR wipNet>0 OR consigned(any) w/ material>0
+  const age=o.age||0;
+  const prov=o.prov||0;
+  const delay=o.delay||0;
+  const wipNet=o.wipNet||0;
+
+  if(age>=180 || prov>=0.5 || delay>=14) return '紅';
+  if(age>=90 || prov>0 || wipNet>0 || o.source==='5003') return '黃';
+  return '綠';
+}
+
+function riskFactors(o){
+  const f=[];
+  if(o.source==='5002'){
+    if(o.age>=180) f.push('庫齡≥180');
+    else if(o.age>=90) f.push('庫齡≥90');
+    if(o.prov>=0.5) f.push('提列≥50%');
+    else if(o.prov>0) f.push('已提列');
+    if(o.wh) f.push('庫房:'+o.wh);
+  }
+  if(o.source==='5001'){
+    if(o.delay>=14) f.push('工單延遲≥14天');
+    if(o.wipNet>0) f.push('WIP Net>0');
+    if(o.status) f.push('狀態:'+o.status);
+    if(o.ref) f.push('工單:'+o.ref);
+  }
+  if(o.source==='5003'){
+    f.push('委外庫存');
+  }
+  return f.slice(0,3).join(' / ') || '-';
+}
+
+// =======================
+// 6) Build unified risk list
+// =======================
+function rebuild(){
+  // 6.1 unify rows into risk objects
+  unified=[];
+
+  // 5002 inventory risk objects
+  for(const r of r5002){
+    const item = pick(r,['料號','Item','item','Item No','ITEM']);
+    const bu0 = pick(r,['BU','Bu']);
+    const org0 = pick(r,['Org','ORG']);
+    const biz0 = pick(r,['Business','BUSINESS']);
+    const lot = pick(r,['Lot','LOT']);
+    const wh = pick(r,['庫房','Warehouse','WH']);
+    const age = num(pick(r,['庫齡','Age','AGE']));
+    const amt = num(pick(r,['總成本','Total Cost','TOTAL']));
+    const prov = num(pick(r,['提列比率','Provision','提列','PROVISION']));
+    unified.push({
+      source:'5002',
+      bu:bu0, org:org0, business:biz0,
+      item, ref: lot || '-',
+      wh,
+      age,
+      prov: prov>1? (prov/100) : prov, // accept 0-1 or 0-100
+      amt,
+      status:'',
+      wipNet:0,
+      delay:0
+    });
+  }
+
+  // 5003 consigned risk objects
+  for(const r of r5003){
+    const item = pick(r,['料號','Item','ITEM']);
+    const bu0 = pick(r,['BU','Bu']);
+    const org0 = pick(r,['Org','ORG']);
+    const biz0 = pick(r,['Business','BUSINESS']);
+    const amt = num(pick(r,['NTDMaterial Amount','NTDMaterial Amount ','NTDMaterial Amount\n','NTDMaterial Amount\r\n','NTDMaterial Amount\t','NTDMaterial Amount\n\r','NTDMaterial Amount\n\t','NTDMaterial Amount\r','NTDMaterial Amount\t','NTDMaterial Amount(Amount)','Material Amount','Material Amount ']))
+              || num(pick(r,['Material Amount','Material Amount ']));
+    unified.push({
+      source:'5003',
+      bu:bu0, org:org0, business:biz0,
+      item, ref: pick(r,['Consigned料號','Consigned','Consigned Item']) || '-',
+      wh:'委外',
+      age:0,
+      prov:0,
+      amt,
+      status: pick(r,['資料類型']) || 'Consigned',
+      wipNet:0,
+      delay:0
+    });
+  }
+
+  // 5001 WIP risk objects
+  for(const r of r5001){
+    const item = pick(r,['料號','Item','ITEM']);
+    const bu0 = pick(r,['BU','Bu']);
+    const org0 = pick(r,['Org','ORG']);
+    const biz0 = pick(r,['Business','BUSINESS']);
+    const wo = pick(r,['工單號','Work Order','WO']);
+    const status = pick(r,['狀態','Status']);
+    // Handle the weird line-break headers in some exports
+    const wipNet = num(pick(r,['Material Amount Net','Material Amount\nNet','Material Amount\r\nNet','Material Amount\tNet','Material Amount\n Net','Material Amount\nNet ']))
+                 || num(pick(r,['Material Amount\nNet']));
+    const wipCost = num(pick(r,['在製品總成本','WIP總成本','WIP Cost']));
+
+    const planEnd = toDate(pick(r,['預計完成日期','Plan End','預計完成日']));
+    const ts = toDate(pick(r,['時間','Time','日期']));
+    let delay=0;
+    if(planEnd && ts){
+      delay = Math.floor((ts - planEnd)/(1000*60*60*24));
+      if(delay<0) delay=0;
+    }
+
+    unified.push({
+      source:'5001',
+      bu:bu0, org:org0, business:biz0,
+      item, ref: wo || '-',
+      wh:'WIP',
+      age:0,
+      prov:0,
+      amt: wipCost || wipNet,
+      status: status || '',
+      wipNet,
+      delay
+    });
+  }
+
+  // 6.2 Build filters
+  buildFilters();
+
+  // 6.3 Recalc view
+  render();
+}
+
+function buildFilters(){
+  const all = unified;
+  const uniq = (arr)=>['All',...Array.from(new Set(arr.filter(x=>String(x||'').trim()!==''))).sort()];
+
+  const setOpts=(sel, arr)=>{
+    const s=$(sel); s.innerHTML='';
+    for(const v of arr){
+      const o=document.createElement('option');
+      o.value=v; o.text=v;
+      s.appendChild(o);
+    }
+  };
+
+  setOpts('bu', uniq(all.map(x=>x.bu)));
+  setOpts('org', uniq(all.map(x=>x.org)));
+  setOpts('biz', uniq(all.map(x=>x.business)));
+
+  // planner only exists in raw, so infer from 5001/5002/5003 if present
+  const planners=[];
+  for(const r of r5001) planners.push(pick(r,['Planner']));
+  for(const r of r5002) planners.push(pick(r,['Planner']));
+  for(const r of r5003) planners.push(pick(r,['Planner']));
+  setOpts('planner', uniq(planners));
+}
+
+// hook filter changes
+['bu','org','biz','planner'].forEach(id=> $(id).addEventListener('change', render));
+$('q').addEventListener('input', render);
+$('btnRefresh').addEventListener('click', render);
+
+// =======================
+// 7) Render dashboard
+// =======================
+function render(){
+  const fbu=$('bu').value, forg=$('org').value, fbiz=$('biz').value, fpl=$('planner').value;
+  const query=String($('q').value||'').trim().toLowerCase();
+
+  // join planner by best-effort lookup from raw tables
+  const plannerMap = new Map();
+  for(const r of r5001){ plannerMap.set('5001|'+pick(r,['BU'])+'|'+pick(r,['Org'])+'|'+pick(r,['Business'])+'|'+pick(r,['料號'])+'|'+pick(r,['工單號']), pick(r,['Planner']) ); }
+  for(const r of r5002){ plannerMap.set('5002|'+pick(r,['BU'])+'|'+pick(r,['Org'])+'|'+pick(r,['Business'])+'|'+pick(r,['料號'])+'|'+(pick(r,['Lot'])||'-'), pick(r,['Planner']) ); }
+  for(const r of r5003){ plannerMap.set('5003|'+pick(r,['Bu','BU'])+'|'+pick(r,['Org'])+'|'+pick(r,['Business'])+'|'+pick(r,['料號'])+'|'+(pick(r,['Consigned料號'])||'-'), pick(r,['Planner']) ); }
+
+  const view = unified
+    .map(o=>{
+      const k=o.source+'|'+o.bu+'|'+o.org+'|'+o.business+'|'+o.item+'|'+o.ref;
+      return {...o, planner: plannerMap.get(k) || ''};
+    })
+    .filter(o=> (fbu==='All'||o.bu===fbu) && (forg==='All'||o.org===forg) && (fbiz==='All'||o.business===fbiz) && (fpl==='All'||(o.planner||'')===fpl))
+    .filter(o=>{
+      if(!query) return true;
+      const blob=[o.source,o.bu,o.org,o.business,o.item,o.ref,o.wh,o.status,o.planner].join(' ').toLowerCase();
+      return blob.includes(query);
+    });
+
+  // KPI
+  const inv = view.filter(x=>x.source==='5002').reduce((s,x)=>s+x.amt,0);
+  const cons = view.filter(x=>x.source==='5003').reduce((s,x)=>s+x.amt,0);
+  const wip = view.filter(x=>x.source==='5001').reduce((s,x)=>s+x.amt,0);
+
+  const risk = view
+    .filter(x=>{
+      const lvl=riskLevel(x);
+      return lvl==='紅' || lvl==='黃';
+    })
+    .reduce((s,x)=>s+x.amt,0);
+
+  $('kInv').textContent = fmtMoney(inv);
+  $('kCons').textContent = fmtMoney(cons);
+  $('kWip').textContent = fmtMoney(wip);
+  $('kRisk').textContent = fmtMoney(risk);
+
+  // meta
+  const ts=[];
+  if(r5001.length) ts.push('5001:'+String(pick(r5001[0],['時間'])||''));
+  if(r5002.length) ts.push('5002:'+String(pick(r5002[0],['時間'])||''));
+  if(r5003.length) ts.push('5003:'+String(pick(r5003[0],['時間'])||''));
+  $('meta').textContent = `資料筆數｜5001:${r5001.length} 5002:${r5002.length} 5003:${r5003.length}`;
+
+  // charts
+  drawStructure(inv, cons, wip);
+  drawAge(view.filter(x=>x.source==='5002'));
+
+  // risk table
+  buildRisk(view);
+  buildOverdue(view);
+}
+
+function drawStructure(inv, cons, wip){
+  if(structureChart) structureChart.destroy();
+  structureChart = new Chart($('cStructure'), {
+    type:'doughnut',
+    data:{
+      labels:['在庫/在途(5002)','委外(5003)','WIP(5001)'],
+      datasets:[{data:[inv,cons,wip]}]
+    },
+    options:{plugins:{legend:{position:'bottom'}}}
+  });
+}
+
+function drawAge(invRows){
+  if(ageChart) ageChart.destroy();
+  const b={'<=60':0,'61-90':0,'91-179':0,'>=180':0};
+  for(const r of invRows){
+    const a=r.age||0;
+    if(a>=180) b['>=180']+=r.amt;
+    else if(a>=91) b['91-179']+=r.amt;
+    else if(a>=61) b['61-90']+=r.amt;
+    else b['<=60']+=r.amt;
+  }
+  ageChart = new Chart($('cAge'), {
+    type:'bar',
+    data:{labels:Object.keys(b),datasets:[{data:Object.values(b)}]},
+    options:{plugins:{legend:{display:false}},scales:{y:{ticks:{callback:(v)=>{return v>=1e6?(v/1e6).toFixed(1)+'M':v;}}}}}
+  });
+}
+
+function badge(level){
+  if(level==='紅') return `<span class="pill"><span class="dot" style="background:var(--danger)"></span><span class="danger">紅</span></span>`;
+  if(level==='黃') return `<span class="pill"><span class="dot" style="background:var(--warn)"></span><span class="warn">黃</span></span>`;
+  return `<span class="pill"><span class="dot" style="background:var(--ok)"></span><span class="ok">綠</span></span>`;
+}
+
+function buildRisk(view){
+  const tb = document.querySelector('#tRisk tbody');
+  tb.innerHTML='';
+
+  const rows = view
+    .map(o=>({o, level:riskLevel(o), factors:riskFactors(o)}))
+    .filter(x=> x.level!=='綠')
+    .sort((a,b)=>{
+      const rank={'紅':2,'黃':1,'綠':0};
+      if(rank[b.level]!==rank[a.level]) return rank[b.level]-rank[a.level];
+      return (b.o.amt||0)-(a.o.amt||0);
+    })
+    .slice(0, 500); // safeguard
+
+  for(const {o,level,factors} of rows){
+    const k=actionKey(o);
+    const act=getAction(k);
+    const due=act.due || '';
+    const isOver = act.progress!=='Closed' && due && toDate(due) && toDate(due) < today();
+
+    const tr=document.createElement('tr');
+    tr.innerHTML = `
+      <td>${badge(level)}</td>
+      <td class="mono">${o.source}</td>
+      <td>${o.bu||''}</td>
+      <td>${o.org||''}</td>
+      <td>${o.business||''}</td>
+      <td class="mono">${o.item||''}</td>
+      <td class="mono">${o.ref||''}</td>
+      <td class="mono ${level==='紅'?'danger':(level==='黃'?'warn':'')}" style="text-align:right;">${fmtNum(o.amt||0)}</td>
+      <td class="small">${factors}</td>
+      <td>${act.owner||''}</td>
+      <td>${act.progress||'Open'}</td>
+      <td class="${isOver?'danger':''}">${due?due:'-'}</td>
+      <td><button data-k="${encodeURIComponent(k)}" class="btnEdit">編輯</button></td>
+    `;
+    tb.appendChild(tr);
+  }
+
+  // wire edit buttons
+  document.querySelectorAll('.btnEdit').forEach(btn=>{
+    btn.addEventListener('click', ()=> openDrawer(decodeURIComponent(btn.dataset.k)) );
+  });
+}
+
+function buildOverdue(view){
+  const tb=document.querySelector('#tOver tbody');
+  tb.innerHTML='';
+  const rows=[];
+
+  for(const o of view){
+    const k=actionKey(o);
+    const act=getAction(k);
+    if(!act.due) continue;
+    const dd=toDate(act.due);
+    if(!dd) continue;
+    if(act.progress==='Closed') continue;
+    if(dd >= today()) continue;
+    rows.push({o,act});
+  }
+
+  rows.sort((a,b)=> (toDate(a.act.due)-toDate(b.act.due)) || (b.o.amt-a.o.amt));
+
+  for(const {o,act} of rows.slice(0,300)){
+    const tr=document.createElement('tr');
+    tr.innerHTML = `
+      <td class="mono">${o.source}</td>
+      <td>${o.bu||''}</td>
+      <td class="mono">${o.item||''}</td>
+      <td class="mono" style="text-align:right;">${fmtNum(o.amt||0)}</td>
+      <td>${act.owner||''}</td>
+      <td class="danger">${act.due}</td>
+    `;
+    tb.appendChild(tr);
+  }
+}
+
+// =======================
+// 8) Action drawer
+// =======================
+let currentKey='';
+function openDrawer(k){
+  currentKey=k;
+  const act=getAction(k);
+  $('drawer').style.display='block';
+  $('dTitle').textContent='行動追蹤（Owner/進度/到期）';
+  $('dOwner').value=act.owner||'';
+  $('dProgress').value=act.progress||'Open';
+  $('dDue').value=act.due||'';
+  $('dNote').value=act.note||'';
+  $('dKey').textContent=k;
+}
+function closeDrawer(){
+  $('drawer').style.display='none';
+  currentKey='';
+}
+$('dClose').addEventListener('click', closeDrawer);
+
+$('dSave').addEventListener('click', ()=>{
+  if(!currentKey) return;
+  setAction(currentKey, {
+    owner:$('dOwner').value.trim(),
+    progress:$('dProgress').value,
+    due:$('dDue').value,
+    note:$('dNote').value.trim()
+  });
+  closeDrawer();
+  render();
+});
+
+$('dClear').addEventListener('click', ()=>{
+  if(!currentKey) return;
+  clearAction(currentKey);
+  closeDrawer();
+  render();
+});
+
+// =======================
+// 9) Export/Import actions
+// =======================
+$('btnExport').addEventListener('click', ()=>{
+  const blob=new Blob([JSON.stringify(actions,null,2)],{type:'application/json'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='inventory_actions.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+
+$('btnImport').addEventListener('click', ()=> $('actFile').click());
+$('actFile').addEventListener('change', e=>{
+  const f=e.target.files[0];
+  if(!f) return;
+  const reader=new FileReader();
+  reader.onload=ev=>{
+    try{
+      const obj=JSON.parse(ev.target.result);
+      if(obj && typeof obj==='object'){
+        actions=obj;
+        localStorage.setItem(ACT_KEY, JSON.stringify(actions));
+        render();
+      }
+    }catch(err){
+      alert('匯入失敗：JSON 格式不正確');
+    }
+  };
+  reader.readAsText(f);
+});
+
+$('btnClear').addEventListener('click', ()=>{
+  if(!confirm('確定清空所有 Owner/進度/到期追蹤？（此動作不可復原）')) return;
+  actions={};
+  localStorage.setItem(ACT_KEY, JSON.stringify(actions));
+  render();
+});
+
+// =======================
+// 10) Boot
+// =======================
+(function boot(){
+  // init empty filters
+  ['bu','org','biz','planner'].forEach(id=>{ const s=$(id); s.innerHTML='<option>All</option>'; });
+})();
+</script>
+</body>
+</html>
